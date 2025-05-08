@@ -3,7 +3,8 @@ from .views import (
     UserRegistrationView,
     UserLoginView,
     UserProfileView,
-    ProfileView
+    ProfileView,
+    download_tracker
 )
 from django.contrib.auth.views import (
     PasswordResetView,
@@ -49,4 +50,7 @@ urlpatterns = [
     path('password_change/done/', PasswordChangeDoneView.as_view(
         template_name='account/password_change_done.html'
     ), name='password_change_done'),
+    
+    # Скачивание трекера
+    path('download-tracker/', download_tracker, name='download_tracker'),
 ] 

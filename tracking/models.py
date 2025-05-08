@@ -30,7 +30,21 @@ class UserActivity(models.Model):
     application = models.ForeignKey(Application, on_delete=models.CASCADE, verbose_name='Приложение')
     start_time = models.DateTimeField(verbose_name='Время начала')
     end_time = models.DateTimeField(verbose_name='Время окончания')
-    duration = models.DurationField(verbose_name='Длительность')
+    duration = models.DurationField(verbose_name='Длительность', null=True, blank=True)
+    keyboard_presses = models.IntegerField(default=0, verbose_name='Количество нажатий клавиш')
+    
+    def save(self, *args, **kwargs):
+        # Автоматически вычисляем duration при сохранении
+        if self.start_time and self.end_time and (self.duration is None):
+            self.duration = self.end_time - self.start_time
+        super().save(*args, **kwargs)
+        
+        # Очищаем кэш после сохранения
+        from django.core.cache import cache
+        cache.delete(f'user_activity_{self.user.id}')
+        cache.delete(f'dashboard_{self.user.id}_{self.start_time.date()}')
+        cache.delete(f'statistics_{self.user.id}_None_')
+        cache.delete(f'application_list_{self.user.id}')
 
     class Meta:
         verbose_name = 'Активность пользователя'

@@ -1,4 +1,7 @@
 from django.shortcuts import render, redirect
+from django.http import FileResponse
+import os
+from django.conf import settings
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
@@ -110,3 +113,19 @@ def page_not_found(request, exception):
 
 def server_error(request):
     return render(request, 'errors/500.html', status=500)
+
+
+def download_tracker(request):
+    """
+    Представление для скачивания файла трекера
+    """
+    tracker_path = os.path.join(settings.BASE_DIR, 'dist', 'TimeTracker.exe')
+    if not os.path.exists(tracker_path):
+        # Если файл не найден в основной директории, попробуем найти его в desktop_app
+        tracker_path = os.path.join(settings.BASE_DIR, 'desktop_app', 'dist', 'TimeTracker.exe')
+        if not os.path.exists(tracker_path):
+            return render(request, 'errors/404.html', status=404)
+    
+    response = FileResponse(open(tracker_path, 'rb'))
+    response['Content-Disposition'] = 'attachment; filename="TimeTracker.exe"'
+    return response

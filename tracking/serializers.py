@@ -22,7 +22,7 @@ class ApplicationSerializer(serializers.ModelSerializer):
 class UserActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = UserActivity
-        fields = ('id', 'user', 'application', 'start_time', 'end_time', 'duration')
+        fields = ('id', 'user', 'application', 'start_time', 'end_time', 'duration', 'keyboard_presses')
         read_only_fields = ('id', 'user', 'duration')
 
 class KeyboardActivitySerializer(serializers.ModelSerializer):

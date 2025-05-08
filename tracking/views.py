@@ -46,11 +46,12 @@ class ApplicationViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        cache_key = f'application_list_{self.request.user.id}'
-        queryset = cache.get(cache_key)
-        if queryset is None:
-            queryset = Application.objects.filter(is_active=True)
-            cache.set(cache_key, queryset, settings.CACHE_TTL)
+        # Полностью отключаем кэширование для получения актуальных данных
+        # cache_key = f'application_list_{self.request.user.id}'
+        # queryset = cache.get(cache_key)
+        # if queryset is None:
+        queryset = Application.objects.filter(useractivity__user=self.request.user).distinct()
+        # cache.set(cache_key, queryset, settings.CACHE_TTL)
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -86,6 +87,15 @@ class UserActivityViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         try:
+            # Добавляем отладочную информацию
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Получены данные для создания активности: {serializer.validated_data}")
+            
+            # Проверяем, есть ли данные о клавиатурной активности
+            keyboard_presses = serializer.validated_data.get('keyboard_presses', 0)
+            logger.info(f"Количество нажатий клавиш: {keyboard_presses}")
+            
             instance = serializer.save(user=self.request.user)
             cache.delete(f'user_activity_{self.request.user.id}')
             return instance
@@ -118,7 +128,8 @@ class KeyboardActivityViewSet(viewsets.ModelViewSet):
         except ValidationError as e:
             raise InvalidActivityData(detail=str(e))
 
-@method_decorator(cache_page(settings.CACHE_TTL), name='dispatch')
+# Убираем кэширование, чтобы данные обновлялись в реальном времени
+# @method_decorator(cache_page(settings.CACHE_TTL), name='dispatch')
 class StatisticsView(LoginRequiredMixin, TemplateView):
     template_name = 'statistics.html'
 
@@ -137,11 +148,14 @@ class StatisticsView(LoginRequiredMixin, TemplateView):
             productive_only = self.request.GET.get('productive', None)
             app_ids = self.request.GET.getlist('apps', [])
             
+            # Отключаем кэширование, чтобы данные всегда были актуальными
             # Кэш-ключ для статистики
-            cache_key = f'statistics_{self.request.user.id}_{productive_only}_{"-".join(app_ids)}'
-            cached_data = cache.get(cache_key)
+            # cache_key = f'statistics_{self.request.user.id}_{productive_only}_{"-".join(app_ids)}'
+            # cached_data = cache.get(cache_key)
+            cached_data = None  # Всегда загружаем свежие данные
             
-            if cached_data is None:
+            # Всегда загружаем свежие данные
+            if True:
                 # Базовый запрос для фильтрации
                 activity_query = UserActivity.objects.filter(
                     user=self.request.user,
@@ -168,11 +182,11 @@ class StatisticsView(LoginRequiredMixin, TemplateView):
                     total_time=Sum('duration')
                 ).order_by('-total_time')[:10]
                 
-                # Клавиатурная активность
-                keyboard = KeyboardActivity.objects.filter(
+                # Клавиатурная активность - используем поле keyboard_presses из модели UserActivity
+                keyboard = UserActivity.objects.filter(
                     user=self.request.user,
-                    timestamp__range=(start_date, end_date)
-                ).count()
+                    start_time__range=(start_date, end_date)
+                ).aggregate(total_keystrokes=Sum('keyboard_presses'))['total_keystrokes'] or 0
                 
                 # Время работы
                 work_time = TimeLog.objects.filter(
@@ -197,7 +211,8 @@ class StatisticsView(LoginRequiredMixin, TemplateView):
                     'all_apps': all_apps,
                 }
                 
-                cache.set(cache_key, cached_data, settings.CACHE_TTL)
+                # Не используем кэширование
+                # cache.set(cache_key, cached_data, settings.CACHE_TTL)
             
             context.update({
                 'apps': cached_data['apps'],
@@ -215,7 +230,8 @@ class StatisticsView(LoginRequiredMixin, TemplateView):
             messages.error(self.request, str(e))
             return context
 
-@method_decorator(cache_page(settings.CACHE_TTL), name='dispatch')
+# Отключаем кэширование для дашборда
+# @method_decorator(cache_page(settings.CACHE_TTL), name='dispatch')
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = 'dashboard.html'
 
@@ -224,10 +240,13 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         user = self.request.user
         today = timezone.now().date()
 
-        cache_key = f'dashboard_{user.id}_{today}'
-        cached_data = cache.get(cache_key)
+        # Отключаем кэширование, чтобы данные всегда были актуальными
+        # cache_key = f'dashboard_{user.id}_{today}'
+        # cached_data = cache.get(cache_key)
+        cached_data = None  # Всегда загружаем свежие данные
 
-        if cached_data is None:
+        # Всегда загружаем свежие данные
+        if True:
             # Получаем активные приложения
             active_apps = Application.objects.filter(
                 useractivity__user=user,
@@ -235,17 +254,48 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             ).distinct()
 
             # Получаем статистику за сегодня
+            # Добавляем общее время работы за сегодня
+            # Используем прямой SQL-запрос для более точного расчета
+            from django.db import connection
+            from django.db.models import Sum
+            
+            # Используем объекты Django вместо прямого SQL для совместимости с SQLite
+            total_duration = UserActivity.objects.filter(
+                user=user,
+                start_time__date=today
+            ).aggregate(total_time=Sum('duration'))['total_time'] or timedelta(0)
+            
+            total_seconds = total_duration.total_seconds()
+            total_work_time = timedelta(seconds=int(total_seconds))
+            
             today_stats = {
+                'total_work_time': total_work_time,
                 'apps': Application.objects.filter(
                     useractivity__user=user,
                     useractivity__start_time__date=today
                 ).annotate(
                     total_time=Sum('useractivity__duration')
                 ).order_by('-total_time'),
-                'keyboard_activity': KeyboardActivity.objects.filter(
+                
+                # Получаем количество нажатий клавиш из модели UserActivity с использованием SQL
+                'keystrokes': UserActivity.objects.filter(
                     user=user,
-                    timestamp__date=today
-                ).count()
+                    start_time__date=today
+                ).aggregate(total_keystrokes=Sum('keyboard_presses'))['total_keystrokes'] or 0,
+                
+                # Добавляем отладочную информацию о клавиатурной активности
+                'debug_keystrokes': list(UserActivity.objects.filter(
+                    user=user,
+                    start_time__date=today,
+                    keyboard_presses__gt=0
+                ).values('id', 'keyboard_presses', 'start_time', 'end_time')),
+                
+                # Рассчитываем общее время активности
+                'keystrokes_time': UserActivity.objects.filter(
+                    user=user,
+                    start_time__date=today,
+                    keyboard_presses__gt=0
+                ).aggregate(total_time=Sum('duration'))['total_time'] or timedelta(0)
             }
 
             # Получаем последние действия
@@ -260,7 +310,8 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 'today_activity': today_activity
             }
 
-            cache.set(cache_key, cached_data, settings.CACHE_TTL)
+            # Не используем кэширование
+            # cache.set(cache_key, cached_data, settings.CACHE_TTL)
 
         context.update(cached_data)
         return context

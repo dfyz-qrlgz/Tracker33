@@ -7,7 +7,19 @@ import jwt
 from pathlib import Path
 import os
 
-logger = logging.getLogger('TimeTracker')
+log_dir = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, "tracker.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("TimeTracker")
 
 class APIClient:
     def __init__(self, base_url: str):
@@ -63,11 +75,23 @@ class APIClient:
                 data = response.json()
                 self.token = data.get('access')
                 self.refresh_token = data.get('refresh')
-                self.token_expires = datetime.now() + timedelta(minutes=5)  # Токен действителен 5 минут
+                # Декодируем токен для получения времени истечения
+                try:
+                    token_data = jwt.decode(self.token, options={"verify_signature": False})
+                    exp_timestamp = token_data.get('exp')
+                    if exp_timestamp:
+                        self.token_expires = datetime.fromtimestamp(exp_timestamp)
+                    else:
+                        self.token_expires = datetime.now() + timedelta(minutes=60)  # Ставим больше время на всякий случай
+                except Exception as e:
+                    logger.warning(f"Не удалось декодировать токен: {e}")
+                    self.token_expires = datetime.now() + timedelta(minutes=60)
+                
+                logger.info(f"Токен после логина: {self.token[:20]}... действителен до {self.token_expires}")
                 self.save_token()
                 return True
             else:
-                logger.error(f"Ошибка аутентификации: {response.status_code}")
+                logger.error(f"Ошибка аутентификации: {response.status_code} - {response.text}")
                 return False
         except Exception as e:
             logger.error(f"Ошибка при аутентификации: {e}")
@@ -87,11 +111,23 @@ class APIClient:
             if response.status_code == 200:
                 data = response.json()
                 self.token = data.get('access')
-                self.token_expires = datetime.now() + timedelta(minutes=5)
+                # Декодируем токен для получения времени истечения
+                try:
+                    token_data = jwt.decode(self.token, options={"verify_signature": False})
+                    exp_timestamp = token_data.get('exp')
+                    if exp_timestamp:
+                        self.token_expires = datetime.fromtimestamp(exp_timestamp)
+                    else:
+                        self.token_expires = datetime.now() + timedelta(minutes=60)
+                except Exception as e:
+                    logger.warning(f"Не удалось декодировать токен: {e}")
+                    self.token_expires = datetime.now() + timedelta(minutes=60)
+                
+                logger.info(f"Токен обновлен: {self.token[:20]}... действителен до {self.token_expires}")
                 self.save_token()
                 return True
             else:
-                logger.error(f"Ошибка обновления токена: {response.status_code}")
+                logger.error(f"Ошибка обновления токена: {response.status_code} - {response.text}")
                 return False
         except Exception as e:
             logger.error(f"Ошибка при обновлении токена: {e}")
@@ -108,34 +144,33 @@ class APIClient:
         if not self.is_token_valid():
             if not self.refresh_auth_token():
                 return {}
-        return {'Authorization': f'Bearer {self.token}'}
+        # Используем формат Bearer для JWT токенов
+        headers = {'Authorization': f'Bearer {self.token}'}
+        logger.info(f"Используем заголовок: {headers}")
+        return headers
 
     def send_activity(self, activity_data: Dict) -> bool:
         """Отправка данных об активности"""
         try:
+            headers = self.get_headers()
+            logger.info(f"Заголовки для запроса: {headers}")
+            # Проверяем, содержит ли base_url уже /api на конце
+            api_prefix = '/api' if not self.base_url.endswith('/api') else ''
             response = requests.post(
-                f"{self.base_url}/api/activities/",
+                f"{self.base_url}{api_prefix}/activities/",
                 json=activity_data,
-                headers=self.get_headers()
+                headers=headers
             )
+            logger.info(f"Ответ сервера: {response.status_code} {response.text}")
             return response.status_code == 201
         except Exception as e:
             logger.error(f"Ошибка отправки активности: {e}")
             return False
 
     def get_user_info(self) -> Optional[Dict]:
-        """Получение информации о пользователе"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/api/user/",
-                headers=self.get_headers()
-            )
-            if response.status_code == 200:
-                return response.json()
-            return None
-        except Exception as e:
-            logger.error(f"Ошибка получения информации о пользователе: {e}")
-            return None
+        """Получение информации о пользователе (заглушка)"""
+        logger.info("Вызов get_user_info пропущен: ручка /api/user/ не реализована на сервере.")
+        return None
 
     def logout(self):
         """Выход из системы"""

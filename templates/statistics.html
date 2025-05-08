@@ -15,7 +15,13 @@
                         <div class="card bg-primary text-white">
                             <div class="card-body">
                                 <h5 class="card-title">Общее время работы</h5>
-                                <p class="card-text">{{ work_time|default:"0:00:00" }}</p>
+                                <p class="card-text">
+                                    {% if work_time %}
+                                        {{ work_time|time:"H:i:s" }}
+                                    {% else %}
+                                        00:00:00
+                                    {% endif %}
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -52,7 +58,13 @@
                             {% for app in apps %}
                             <tr>
                                 <td>{{ app.name }}</td>
-                                <td>{{ app.total_time|default:"0:00:00" }}</td>
+                                <td>
+                                    {% if app.total_time %}
+                                        {{ app.total_time|time:"H:i:s" }}
+                                    {% else %}
+                                        00:00:00
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% empty %}
                             <tr>
